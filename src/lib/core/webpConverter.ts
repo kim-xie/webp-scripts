@@ -283,6 +283,8 @@ const webpconvert = async ({
         const fileName = path.basename(filePath)
         filePath = path.join(outputPath, fileName)
       }
+      const dirname = path.dirname(filePath)
+      dirname && mkdirPath(dirname)
     }
     return `${filePath}.webp`
   }
