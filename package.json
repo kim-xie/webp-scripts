@@ -1,6 +1,6 @@
 {
   "name": "webp-scripts",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "webp script",
   "main": "./dist/bin/webp-scripts.js",
   "types": "./dist/bin/webp-scripts.d.ts",

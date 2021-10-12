@@ -5,38 +5,39 @@ const webpConverter = require('../lib/core/webpConverter')
 const logger = require('../lib/utils/logger')
 
 ;(async () => {
-  program.version(packageInfo.version, '-V, --version').usage('<inputDir> [outputDir] [options]')
-
   program
-    .requiredOption('-I, --inputDir <inputDir>', 'imgs or img input dir')
+    .version(packageInfo.version, '-V, --version')
+    .usage('<inputDir | imgSrc> [outputDir] [options]')
+
+  // requiredOption
+  program
     .option('-W, --watch [boolean]', 'use watch mode', false)
-    .option('-O, --outputDir <outputDir>', 'imgs or img output dir')
+    .option('-S, --imgSrc [imgSrc]', 'single img transform to webp')
+    .option('-I, --inputDir [inputDir]', 'imgs or img input dir')
+    .option('-O, --outputDir [outputDir]', 'imgs or img output dir')
     .option(
       '-A, --action [action]',
       'use action has generateWebp、deleteWebp、deleteNotWebp',
       'generateWebp'
     )
-    .option('-R, --recursive [boolean]', 'imgs input dir recursive')
+    .option('-R, --isRecursion [boolean]', 'imgs input dir isRecursion')
     .option('-L, --showLog [boolean]', 'show webp log')
     .option('-Q, --quality [number]', 'cwebp quality 0~100', 75)
-    .action(async (options: any) => {
-      const { inputDir, watch, recursive, showLog, quality, action } = options
+    .action((options: any) => {
+      const { inputDir, watch, isRecursion, showLog, quality, action, imgSrc } = options
       const outputDir = options.outputDir || inputDir
-      if (inputDir) {
+      if (inputDir || imgSrc) {
         try {
-          await webpConverter
-            .webpconvert({
-              watch,
-              action,
-              inputPath: inputDir,
-              outputPath: outputDir,
-              isRecursion: recursive,
-              quality,
-              showLog
-            })
-            .then(() => {
-              logger.info('end')
-            })
+          webpConverter.webpconvert({
+            watch,
+            action,
+            imgSrc,
+            inputDir,
+            outputDir,
+            isRecursion,
+            quality,
+            showLog
+          })
         } catch (error) {
           logger.error(error)
           process.exit(1)

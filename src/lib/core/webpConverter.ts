@@ -4,8 +4,6 @@ const chokidar = require('chokidar')
 const fs = require('fs')
 const path = require('path')
 const webp = require('webp-converter')
-const { promisify } = require('util')
-const readdirSync = promisify(fs.readdir)
 let inputFileCount = 0
 let genWebpFileCount = 0
 let delWebpFileCount = 0
@@ -23,7 +21,7 @@ function readDirFile(
   showLog: boolean,
   callback: (filePath: string, name: string, stats: string) => void
 ) {
-  return readdirSync(currentDirPath, (err: any, files: any[]) => {
+  fs.readdir(currentDirPath, (err: any, files: any[]) => {
     if (err) {
       console.warn(err)
     }
@@ -54,36 +52,57 @@ function readDirFile(
  * @returns
  */
 const mkdirPath = (pathStr: string) => {
-  fs.access(pathStr, fs.constants.F_OK, (err: any) => {
-    if (err) {
-      // 不存在则创建
-      fs.mkdirSync(pathStr)
-    } else {
-      const tempstats = fs.statSync(pathStr)
+  fileIsExist(
+    pathStr,
+    tempstats => {
       if (!tempstats.isDirectory()) {
         fs.unlinkSync(pathStr)
         fs.mkdirSync(pathStr)
       }
+    },
+    () => {
+      // 不存在则创建
+      fs.mkdirSync(pathStr)
+    }
+  )
+  return pathStr
+}
+
+/**
+ * 判断路径是否存在
+ * @param pathStr
+ * @param onFail
+ * @param onSuccess
+ */
+const fileIsExist = (pathStr: string, onSuccess: (tempstats: any) => void, onFail: () => void) => {
+  fs.access(pathStr, fs.constants.F_OK, (err: any) => {
+    if (err) {
+      // 不存在
+      onFail && onFail()
+    } else {
+      const tempstats = fs.statSync(pathStr)
+      onSuccess && onSuccess(tempstats)
     }
   })
-  return pathStr
 }
 
 /**
  * webp转换工具
  * @param action generateWebp\deleteWebp\deleteNotWebp -- （3选1）watch为fasle下生效
  * @param watch 是否开启文件夹监听模式：开启会一直监听文件夹下的文件变动
- * @param inputPath 需要监听或读取的图片文件夹路径
- * @param outputPath 生成webp需要存放的路径，默认会生成在同一文件夹下
+ * @param imgSrc 处理单张图片（比文件目录优先级更高）
+ * @param inputDir 需要监听或读取的图片文件夹路径
+ * @param outputDir 生成webp需要存放的路径，默认会生成在同一文件夹下
  * @param isRecursion 是否需要递归文件夹
  * @param quality 压缩质量
  * @param showLog 显示日志
  */
-const webpconvert = async ({
+const webpconvert = ({
   action,
   watch,
-  inputPath,
-  outputPath,
+  imgSrc,
+  inputDir,
+  outputDir,
   isRecursion,
   quality,
   showLog
@@ -94,19 +113,19 @@ const webpconvert = async ({
   const webpFile = /(.+?\.webp$)/
   const imgFile = /\.(jpe?g|png)$/
   const watchFiles = /\.(jpe?g|png|webp)$/
-  // 默认为文本安装cwebp工具
+  // 默认使用本地安装cwebp工具
   let currentRunEnv = 'local'
   // webp图片质量，默认75
   quality = quality || 75
   // 输出文件目录
-  outputPath = outputPath && mkdirPath(outputPath)
+  outputDir = outputDir && mkdirPath(outputDir)
 
   console.log('watch: ', watch)
   const startTime = new Date().toLocaleString()
   console.log(Chalk.green(`${watch ? 'watch' : action} is begining at ${startTime} ...`))
 
-  console.log('inputPath: ', inputPath)
-  console.log('outputPath: ', outputPath || inputPath)
+  console.log('inputPath: ', imgSrc || inputDir)
+  console.log('outputPath: ', outputDir || inputDir)
 
   /**
    * 获取当前环境：
@@ -117,11 +136,16 @@ const webpconvert = async ({
    *       yum install libXtst.x86_64
    */
   currentRunEnv = getCurrentEnv()
+
+  /**
+   * 转化模式：优先级从高到低
+   * watch > imgSrc > inputDir
+   */
   if (watch) {
     /**
      * 使用监听文件夹的方式
      * */
-    const watcher = chokidar.watch(inputPath, {
+    const watcher = chokidar.watch(inputDir, {
       // 忽略监听的文件及目录
       ignored: (paths: string) => {
         // 文件夹通过
@@ -133,7 +157,7 @@ const webpconvert = async ({
       },
       // 保护进程不退出持久监听
       persistent: true,
-      // 监听的inputPath所相对的路径
+      // 监听的inputDir所相对的路径
       cwd: '.',
       // 限定了会递归监听多少个子目录
       depth: isRecursion ? Infinity : 0
@@ -167,15 +191,17 @@ const webpconvert = async ({
           // 删除webp，则重新生成
           if (webpFile.test(path)) {
             const destFile = path.split('.webp')[0]
-            fs.access(destFile, fs.constants.F_OK, (err: any) => {
-              if (err) {
-                // 原图不存在，不处理
-                // console.log(Chalk.green(`[generate new webp] ${path}  success`))
-              } else {
+            fileIsExist(
+              destFile,
+              () => {
                 // 原图存在，则重新生成
                 generateWebpImgByEnv(destFile)
+              },
+              () => {
+                // 原图不存在，不处理
+                console.log(Chalk.red(`[deleteWebp no such file] ${destFile}`))
               }
-            })
+            )
           } else {
             // 图片删除,删除掉原来的webp
             deleteImg(getWebpImgName(path), (status: string) => {
@@ -190,41 +216,103 @@ const webpconvert = async ({
           break
       }
     })
+  } else if (imgSrc) {
+    /**
+     * 转化单张图片
+     */
+    doWorkByFile(path.join(imgSrc))
   } else {
     /**
      * 读取文件夹的方式进行文件读取
      * isRecursion: 是否需要递归文件夹
      * */
-    await readDirFile(inputPath, isRecursion, showLog, filePath => {
+    readDirFile(inputDir, isRecursion, showLog, filePath => {
+      doWorkByFile(filePath)
+    })
+  }
+
+  /**
+   * 进行转化工作
+   */
+  function doWorkByFile(filePath: string) {
+    if (watchFiles.test(filePath)) {
       inputFileCount += 1
       // 执行删除指令
       if (action === 'deleteWebp') {
         /**
-         * 如果文件夹下有.webp图片，则会删掉
+         * 如果是.webp图片，则会删掉
          */
-        if (filePath.indexOf('.webp') > -1) {
-          deleteImg(filePath, (status: string) => {
-            console.log(Chalk.green(`[delete webp] ${getWebpImgName(filePath)}  ${status}`))
-          })
+        if (filePath.indexOf('.webp') < 0) {
+          filePath = filePath + '.webp'
+          fileIsExist(
+            filePath,
+            () => {
+              // 存在则删除
+              deleteImg(filePath, (status: string) => {
+                console.log(Chalk.green(`[delete webp] ${filePath}  ${status}`))
+              })
+            },
+            () => {
+              // 不存在，不处理
+              console.log(Chalk.red(`[deleteWebp no such file] ${filePath}`))
+            }
+          )
+        } else {
+          fileIsExist(
+            filePath,
+            () => {
+              // 存在则删除
+              deleteImg(filePath, (status: string) => {
+                console.log(Chalk.green(`[delete webp] ${getWebpImgName(filePath)}  ${status}`))
+              })
+            },
+            () => {
+              // 不存在，不处理
+              console.log(Chalk.red(`[deleteWebp no such file] ${filePath}`))
+            }
+          )
         }
       } else if (action === 'deleteNotWebp') {
         /**
-         * 如果文件夹下有图片，则会删掉
+         * 图片，则会删掉
          */
-        if (filePath.indexOf('.webp') < 0) {
-          deleteImg(filePath, (status: string) => {
-            console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
-          })
+        if (filePath.indexOf('.webp') > -1) {
+          filePath = filePath.split('.webp')[0]
         }
+        fileIsExist(
+          filePath,
+          () => {
+            // 存在则删除
+            deleteImg(filePath, (status: string) => {
+              console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
+            })
+          },
+          () => {
+            // 不存在，不处理
+            console.log(Chalk.red(`[deleteNotWebp no such file] ${filePath}`))
+          }
+        )
       } else {
         /**
          * 生成webp图片
          * */
         if (filePath.indexOf('.webp') < 0) {
-          generateWebpImgByEnv(filePath)
+          fileIsExist(
+            filePath,
+            () => {
+              // 存在则生成webp
+              generateWebpImgByEnv(filePath)
+            },
+            () => {
+              // 不存在，不处理
+              console.log(Chalk.red(`[generateWebp no such file] ${filePath}`))
+            }
+          )
         }
       }
-    })
+    } else {
+      console.log(Chalk.green(`只支持传入jpg、jpeg、png、webp格式的图片`))
+    }
   }
 
   /**
@@ -273,18 +361,21 @@ const webpconvert = async ({
    **/
   function getWebpImgName(filePath: string) {
     // 指定输出路径
-    if (outputPath) {
+    if (outputDir) {
       // 输出路径递归显示
       const newFilePath =
-        filePath.split(path.join(outputPath))[1] || filePath.split(path.join(inputPath))[1]
+        filePath.split(path.join(outputDir))[1] ||
+        filePath.split(path.join(path.basename(imgSrc) || inputDir))[1]
       if (isRecursion) {
-        filePath = path.join(outputPath, newFilePath)
+        filePath = path.join(outputDir, newFilePath)
       } else {
         const fileName = path.basename(filePath)
-        filePath = path.join(outputPath, fileName)
+        filePath = path.join(outputDir, fileName)
       }
       const dirname = path.dirname(filePath)
-      dirname && mkdirPath(dirname)
+      if (dirname && dirname !== path.join(outputDir)) {
+        mkdirPath(dirname)
+      }
     }
     return `${filePath}.webp`
   }
