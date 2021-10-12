@@ -20,16 +20,21 @@ npm install webp-scripts
 
 ```shell
 $ npx webp-scripts -h
-Usage: webp-scripts <inputDir> [outputDir] [options]
+Usage: webp-scripts <inputDir | imgSrc> [outputDir] [options]
 
 Options:
   -V, --version                output the version number
-  -I, --inputDir <inputDir>    imgs or img input dir
   -W, --watch [boolean]        use watch mode (default: false)
-  -O, --outputDir <outputDir>  imgs or img output dir
+  -S, --imgSrc [imgSrc]        single img transform to webp
+  -I, --inputDir [inputDir]    imgs or img input dir
+  -O, --outputDir [outputDir]  imgs or img output dir
   -A, --action [action]        use action has generateWebp、deleteWebp、deleteNotWebp (default: "generateWebp")
-  -R, --recursive [boolean]    imgs input dir recursive
+  -R, --isRecursion [boolean]  imgs input dir isRecursion
   -L, --showLog [boolean]      show webp log
   -Q, --quality [number]       cwebp quality 0~100 (default: 75)
   -h, --help                   display help for command
+
+
+  excample:
+  webp-scripts -I static/img -O static/webpImg -R -L -A generateWebp
 ```
