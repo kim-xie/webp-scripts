@@ -242,8 +242,7 @@ const webpconvert = ({
         /**
          * 如果是.webp图片，则会删掉
          */
-        if (filePath.indexOf('.webp') < 0) {
-          filePath = filePath + '.webp'
+        if (filePath.indexOf('.webp') > -1) {
           fileIsExist(
             filePath,
             () => {
@@ -257,41 +256,26 @@ const webpconvert = ({
               console.log(Chalk.red(`[deleteWebp no such file] ${filePath}`))
             }
           )
-        } else {
-          fileIsExist(
-            filePath,
-            () => {
-              // 存在则删除
-              deleteImg(filePath, (status: string) => {
-                console.log(Chalk.green(`[delete webp] ${getWebpImgName(filePath)}  ${status}`))
-              })
-            },
-            () => {
-              // 不存在，不处理
-              console.log(Chalk.red(`[deleteWebp no such file] ${filePath}`))
-            }
-          )
         }
       } else if (action === 'deleteNotWebp') {
         /**
          * 图片，则会删掉
          */
-        if (filePath.indexOf('.webp') > -1) {
-          filePath = filePath.split('.webp')[0]
+        if (filePath.indexOf('.webp') < 0) {
+          fileIsExist(
+            filePath,
+            () => {
+              // 存在则删除
+              deleteImg(filePath, (status: string) => {
+                console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
+              })
+            },
+            () => {
+              // 不存在，不处理
+              console.log(Chalk.red(`[deleteNotWebp no such file] ${filePath}`))
+            }
+          )
         }
-        fileIsExist(
-          filePath,
-          () => {
-            // 存在则删除
-            deleteImg(filePath, (status: string) => {
-              console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
-            })
-          },
-          () => {
-            // 不存在，不处理
-            console.log(Chalk.red(`[deleteNotWebp no such file] ${filePath}`))
-          }
-        )
       } else {
         /**
          * 生成webp图片
