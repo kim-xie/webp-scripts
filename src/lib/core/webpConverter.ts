@@ -4,9 +4,6 @@ const chokidar = require('chokidar')
 const fs = require('fs')
 const path = require('path')
 const webp = require('webp-converter')
-let inputFileCount = 0
-let genWebpFileCount = 0
-let delWebpFileCount = 0
 
 /**
  * 异步递归读取文件夹下的文件
@@ -19,11 +16,12 @@ function readDirFile(
   currentDirPath: string,
   isRecursion: boolean,
   showLog: boolean,
-  callback: (filePath: string, name: string, stats: string) => void
+  callback: (filePath: string, name: string, stats: any) => void
 ) {
   fs.readdir(currentDirPath, (err: any, files: any[]) => {
     if (err) {
       console.warn(err)
+      return
     }
     files.forEach(name => {
       const filePath = path.join(currentDirPath, name)
@@ -34,7 +32,6 @@ function readDirFile(
           const isFile = stats.isFile() // 是文件
           const isDir = stats.isDirectory() // 是文件夹
           if (isFile) {
-            showLog && console.log(Chalk.green('[read input file]', filePath))
             callback && callback(filePath, name, stats)
           }
           if (isDir && isRecursion) {
@@ -44,6 +41,19 @@ function readDirFile(
       })
     })
   })
+}
+
+/**
+ * @remarks 字节转换
+ * @param byte 字节
+ * @returns
+ */
+const ByteSize = (byte = 0) => {
+  if (byte === 0) return '0 B'
+  const unit = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+  const i = Math.floor(Math.log(byte) / Math.log(unit))
+  return (byte / Math.pow(unit, i)).toPrecision(3) + ' ' + sizes[i]
 }
 
 /**
@@ -86,6 +96,12 @@ const fileIsExist = (pathStr: string, onSuccess: (tempstats: any) => void, onFai
   })
 }
 
+// 获取文件size
+const getFileSize = (filePath: any) => {
+  const stat = fs.statSync(filePath)
+  return stat.size || 0
+}
+
 /**
  * webp转换工具
  * @param action generateWebp\deleteWebp\deleteNotWebp -- （3选1）watch为fasle下生效
@@ -97,7 +113,7 @@ const fileIsExist = (pathStr: string, onSuccess: (tempstats: any) => void, onFai
  * @param quality 压缩质量
  * @param showLog 显示日志
  */
-const webpconvert = ({
+const webpconvert = async ({
   action,
   watch,
   imgSrc,
@@ -109,10 +125,14 @@ const webpconvert = ({
 }: {
   [key: string]: any
 }) => {
+  // 统计
+  let timer: any = null
+  let inputFileCount = 0
+  let generateFileCount = 0
   // .webp结尾的文件
   const webpFile = /(.+?\.webp$)/
-  const imgFile = /\.(jpe?g|png)$/
-  const watchFiles = /\.(jpe?g|png|webp)$/
+  const imgFile = /\.(jpe?g|png|gif)$/
+  const watchFiles = /\.(jpe?g|png|gif|webp)$/
   // 默认使用本地安装cwebp工具
   let currentRunEnv = 'local'
   // webp图片质量，默认75
@@ -120,12 +140,11 @@ const webpconvert = ({
   // 输出文件目录
   outputDir = outputDir && mkdirPath(outputDir)
 
-  console.log('watch: ', watch)
   const startTime = new Date().toLocaleString()
-  console.log(Chalk.green(`${watch ? 'watch' : action} is begining at ${startTime} ...`))
+  console.log(Chalk.yellow(`${watch ? 'watch' : action} is begining at ${startTime}`))
 
-  console.log('inputPath: ', imgSrc || inputDir)
-  console.log('outputPath: ', outputDir || inputDir)
+  console.log(Chalk.greenBright(`inputPath: ${imgSrc || inputDir}`))
+  console.log(Chalk.greenBright(`outputPath: ${outputDir || inputDir}`))
 
   /**
    * 获取当前环境：
@@ -171,7 +190,12 @@ const webpconvert = ({
         case 'add':
           // 只处理新增的imgFile
           if (imgFile.test(path)) {
-            console.log(Chalk.green(`[add new img] ${path}`))
+            console.log(
+              Chalk.green(
+                `[add new img] ${path} [size is: ${Chalk.red(ByteSize(getFileSize(path)))}]`
+              )
+            )
+            inputFileCount += 1
             // 添加新图片，自动转webp
             generateWebpImgByEnv(path)
           }
@@ -179,11 +203,16 @@ const webpconvert = ({
         case 'change':
           // 只处理修改的imgFile
           if (imgFile.test(path)) {
-            console.log(Chalk.green(`[change the img] ${path}`))
+            console.log(
+              Chalk.green(
+                `[change the img] ${path} [size is: ${Chalk.red(ByteSize(getFileSize(path)))}]`
+              )
+            )
             // 图片有变更，先删除掉原来的webp，再重新生成
             deleteImg(getWebpImgName(path), (status: string) => {
               console.log(Chalk.green(`[delete old webp] ${getWebpImgName(path)}  ${status}`))
             })
+            inputFileCount += 1
             generateWebpImgByEnv(path)
           }
           break
@@ -220,35 +249,42 @@ const webpconvert = ({
     /**
      * 转化单张图片
      */
-    doWorkByFile(path.join(imgSrc))
+    const imgPath = path.join(imgSrc)
+    const size = getFileSize(imgPath)
+    doWorkByFile(imgPath, size)
   } else {
     /**
      * 读取文件夹的方式进行文件读取
      * isRecursion: 是否需要递归文件夹
      * */
-    readDirFile(inputDir, isRecursion, showLog, filePath => {
-      doWorkByFile(filePath)
+    readDirFile(inputDir, isRecursion, showLog, (filePath, name, stats) => {
+      doWorkByFile(filePath, stats.size)
     })
   }
 
   /**
    * 进行转化工作
    */
-  function doWorkByFile(filePath: string) {
+  function doWorkByFile(filePath: string, size?: number) {
     if (watchFiles.test(filePath)) {
-      inputFileCount += 1
+      showLog &&
+        console.log(
+          Chalk.green('[read input file]', filePath, `[size is ${Chalk.red(ByteSize(size))}]`)
+        )
       // 执行删除指令
       if (action === 'deleteWebp') {
         /**
          * 如果是.webp图片，则会删掉
          */
-        if (filePath.indexOf('.webp') > -1) {
+        if (webpFile.test(filePath)) {
           fileIsExist(
             filePath,
             () => {
+              inputFileCount += 1
               // 存在则删除
               deleteImg(filePath, (status: string) => {
-                console.log(Chalk.green(`[delete webp] ${filePath}  ${status}`))
+                showLog && console.log(Chalk.green(`[delete webp] ${filePath}  ${status}`))
+                endLog('deleteWebp')
               })
             },
             () => {
@@ -261,13 +297,15 @@ const webpconvert = ({
         /**
          * 图片，则会删掉
          */
-        if (filePath.indexOf('.webp') < 0) {
+        if (!webpFile.test(filePath)) {
           fileIsExist(
             filePath,
             () => {
+              inputFileCount += 1
               // 存在则删除
               deleteImg(filePath, (status: string) => {
-                console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
+                showLog && console.log(Chalk.green(`[delete img] ${filePath}  ${status}`))
+                endLog('deleteImg')
               })
             },
             () => {
@@ -280,10 +318,11 @@ const webpconvert = ({
         /**
          * 生成webp图片
          * */
-        if (filePath.indexOf('.webp') < 0) {
+        if (!webpFile.test(filePath)) {
           fileIsExist(
             filePath,
             () => {
+              inputFileCount += 1
               // 存在则生成webp
               generateWebpImgByEnv(filePath)
             },
@@ -295,7 +334,7 @@ const webpconvert = ({
         }
       }
     } else {
-      console.log(Chalk.green(`只支持传入jpg、jpeg、png、webp格式的图片`))
+      console.log(Chalk.red(`${filePath} 文件不支持，目前只支持传入jpg、jpeg、png、webp格式的图片`))
     }
   }
 
@@ -322,21 +361,49 @@ const webpconvert = ({
    */
   function generateWebpImgByEnv(filePath: string) {
     // 日志模块
-    const log = (filePath: string, status: string) => {
-      console.log(
-        status === 'success'
-          ? Chalk.green(`[generate webp] ${getWebpImgName(filePath)}  ${status}`)
-          : Chalk.red(`[generate webp] ${getWebpImgName(filePath)}  ${status}`)
-      )
+    const log = async (filePath: string, status: string) => {
+      const oldSize = getFileSize(filePath)
+      const webpSize = getFileSize(getWebpImgName(filePath))
+      showLog &&
+        console.log(
+          status === 'success'
+            ? Chalk.green(
+                `[generate webp] ${getWebpImgName(filePath)}  [old size is: ${Chalk.red(
+                  ByteSize(oldSize)
+                )} webp size is: ${Chalk.red(ByteSize(webpSize))}] ${status}`
+              )
+            : Chalk.red(`[generate webp] ${getWebpImgName(filePath)}  ${status}`)
+        )
     }
     if (currentRunEnv === 'node') {
-      generateWebpImgByNode(filePath, (status: string) => {
+      generateWebpImgByNode(filePath, async (status: string) => {
         log(filePath, status)
+        endLog('generateWebp')
       })
     } else {
-      generateWebpImgByLocal(filePath, (status: string) => {
+      generateWebpImgByLocal(filePath, async (status: string) => {
         log(filePath, status)
+        endLog('generateWebp')
       })
+    }
+  }
+
+  // 结束日志
+  const endLog = (text: string) => {
+    if (generateFileCount === inputFileCount) {
+      timer && clearTimeout(timer)
+      timer = setTimeout(() => {
+        const endTime = new Date().toLocaleString()
+        console.log(
+          Chalk.yellow(
+            `${text} is completed at ${endTime} [total is ${Chalk.red(generateFileCount)} ${
+              text === 'generateWebp' ? 'quality is ' + Chalk.red(quality) : ''
+            }]`
+          )
+        )
+        inputFileCount = 0
+        generateFileCount = 0
+      }, 1000)
     }
   }
 
@@ -345,23 +412,17 @@ const webpconvert = ({
    **/
   function getWebpImgName(filePath: string) {
     // 指定输出路径
-    if (outputDir) {
-      // 输出路径递归显示
-      const newFilePath =
-        filePath.split(path.join(outputDir))[1] ||
-        filePath.split(path.join(path.basename(imgSrc) || inputDir))[1]
-      if (isRecursion) {
-        filePath = path.join(outputDir, newFilePath)
-      } else {
-        const fileName = path.basename(filePath)
-        filePath = path.join(outputDir, fileName)
-      }
-      const dirname = path.dirname(filePath)
-      if (dirname && dirname !== path.join(outputDir)) {
-        mkdirPath(dirname)
-      }
-    }
-    return `${filePath}.webp`
+    const fileName = path.basename(filePath)
+    const pathName = filePath
+      .replace(
+        imgSrc ? path.dirname(filePath)?.replace('/', '\\') : inputDir?.replace('/', '\\'),
+        outputDir?.replace('/', '\\')
+      )
+      .replace(fileName, '')
+    const currentPath = mkdirPath(pathName)
+    const outputFilePath = path.join(currentPath as string, fileName)
+
+    return `${outputFilePath || filePath}.webp`
   }
 
   /**
@@ -369,7 +430,15 @@ const webpconvert = ({
    **/
   function getShellCmd(filePath: string) {
     const outPath = getWebpImgName(filePath)
-    return `cwebp -q ${quality} ${filePath} -o ${outPath}`
+
+    // 兼容复制图片时生成带空格的图片地址
+    let hasTrim = false
+    if (filePath.indexOf(' ') > -1) {
+      hasTrim = true
+    }
+    return `cwebp -q ${quality} ${hasTrim ? `"${filePath}"` : filePath} -o ${
+      hasTrim ? `"${outPath}"` : outPath
+    }`
   }
 
   /**
@@ -381,8 +450,8 @@ const webpconvert = ({
         cb('fail')
         console.log(Chalk.red('请先运行cwebp -h命令检查cwebp是否安装ok：'), err)
       } else {
+        generateFileCount += 1
         cb('success')
-        genWebpFileCount += 1
       }
     })
   }
@@ -399,8 +468,8 @@ const webpconvert = ({
         cb('fail')
         console.log(Chalk.red('webp-converter转换webp失败：'), res)
       } else {
+        generateFileCount += 1
         cb('success')
-        genWebpFileCount += 1
       }
     })
   }
@@ -415,10 +484,9 @@ const webpconvert = ({
         console.log(Chalk.red(err))
       } else {
         cb('success')
-        delWebpFileCount += 1
       }
     })
   }
 }
 
-module.exports = { webpconvert, inputFileCount, genWebpFileCount, delWebpFileCount }
+module.exports = { webpconvert }
