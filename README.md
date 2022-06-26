@@ -1,6 +1,6 @@
 # 介绍
 
-webp-scripts 是一个 png|jpg|jpeg 图片转 webp 格式命令行工具
+webp-scripts 是一个 png|jpg|jpeg|gif 图片转 webp 格式命令行工具
 
 ## 1. 如何使用
 
