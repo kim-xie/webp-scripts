@@ -129,6 +129,7 @@ const webpconvert = async ({
   let timer: any = null
   let inputFileCount = 0
   let generateFileCount = 0
+  let generateSuccFileCount = 0
   // .webp结尾的文件
   const webpFile = /(.+?\.webp$)/
   const imgFile = /\.(jpe?g|png|gif)$/
@@ -269,7 +270,7 @@ const webpconvert = async ({
     if (watchFiles.test(filePath)) {
       showLog &&
         console.log(
-          Chalk.green('[read input file]', filePath, `[size is ${Chalk.red(ByteSize(size))}]`)
+          Chalk.green('[read input file]', filePath, `[size is: ${Chalk.red(ByteSize(size))}]`)
         )
       // 执行删除指令
       if (action === 'deleteWebp') {
@@ -396,11 +397,12 @@ const webpconvert = async ({
         const endTime = new Date().toLocaleString()
         console.log(
           Chalk.yellow(
-            `${text} is completed at ${endTime} [total is ${Chalk.red(generateFileCount)} ${
+            `${text} is completed at ${endTime} [total is ${Chalk.red(generateSuccFileCount)} ${
               text === 'generateWebp' ? 'quality is ' + Chalk.red(quality) : ''
             }]`
           )
         )
+        generateSuccFileCount = 0
         inputFileCount = 0
         generateFileCount = 0
       }, 1000)
@@ -446,11 +448,12 @@ const webpconvert = async ({
    **/
   function generateWebpImgByLocal(filePath: string, cb: (status: string) => void) {
     childProcess.exec(getShellCmd(filePath), (err: any) => {
+      generateFileCount += 1
       if (err !== null) {
         cb('fail')
         console.log(Chalk.red('请先运行cwebp -h命令检查cwebp是否安装ok：'), err)
       } else {
-        generateFileCount += 1
+        generateSuccFileCount += 1
         cb('success')
       }
     })
@@ -464,11 +467,12 @@ const webpconvert = async ({
     const logging = showLog ? '-v' : '-quiet'
     const result = webp.cwebp(filePath, outPath, `-q ${quality}`, logging)
     result.then((res: any) => {
+      generateFileCount += 1
       if (res.indexOf('Error') > -1) {
         cb('fail')
         console.log(Chalk.red('webp-converter转换webp失败：'), res)
       } else {
-        generateFileCount += 1
+        generateSuccFileCount += 1
         cb('success')
       }
     })
